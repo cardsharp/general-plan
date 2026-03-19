@@ -1,16 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import Database from "better-sqlite3";
+import BetterSqlite3 from "better-sqlite3";
 
-let db: Database.Database | null = null;
+type SqliteDb = ReturnType<typeof BetterSqlite3>;
+
+let db: SqliteDb | null = null;
 
 function getDbPath() {
   const raw = process.env.SQLITE_PATH || "./data/app.db";
   return path.resolve(raw);
 }
 
-function ensureSchema(conn: Database.Database) {
+function ensureSchema(conn: SqliteDb) {
   conn.exec(`
     create table if not exists document_chunks (
       id text primary key,
@@ -99,7 +101,7 @@ function hashText(text: string) {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
 
-function migrateLegacyEmbeddings(conn: Database.Database) {
+function migrateLegacyEmbeddings(conn: SqliteDb) {
   const rows = conn
     .prepare("select rowid, text, embedding_json, embedding_blob, content_hash from document_chunks")
     .all() as Array<{
@@ -135,7 +137,7 @@ function migrateLegacyEmbeddings(conn: Database.Database) {
   tx(rows);
 }
 
-function rebuildFtsIfNeeded(conn: Database.Database) {
+function rebuildFtsIfNeeded(conn: SqliteDb) {
   const docCount = (conn.prepare("select count(*) as c from document_chunks").get() as { c: number }).c;
   const ftsCount = (conn.prepare("select count(*) as c from document_chunks_fts").get() as { c: number }).c;
   if (docCount > 0 && ftsCount === 0) {
@@ -148,7 +150,7 @@ export function getSqlite() {
 
   const dbPath = getDbPath();
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  db = new Database(dbPath);
+  db = new BetterSqlite3(dbPath);
   db.pragma("journal_mode = WAL");
   ensureSchema(db);
   return db;
