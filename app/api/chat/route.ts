@@ -172,6 +172,8 @@ export async function POST(request: NextRequest) {
       citations: chunks.map((c) => ({
         id: `${c.doc_id}-p${c.page}-q${c.paragraph}`,
         label: `${c.doc_title} [p${c.page} ¶${c.paragraph}]`,
+        docTitle: c.doc_title,
+        sourceType: c.source_type,
         quote: c.quote,
         url: c.url ?? null,
       })),

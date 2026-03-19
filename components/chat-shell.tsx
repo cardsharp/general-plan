@@ -6,6 +6,8 @@ import { APP_CONFIG } from "@/lib/config";
 type Citation = {
   id: string;
   label: string;
+  docTitle?: string;
+  sourceType?: "plan" | "web";
   quote: string;
   url: string | null;
 };
@@ -18,6 +20,12 @@ type Turn = {
   nextOptions?: string[];
 };
 
+type Section = {
+  title: string | null;
+  nodes: ReactNode[];
+  plainText: string[];
+};
+
 function pickRandomItems(items: readonly string[], count: number) {
   const pool = [...items];
   for (let i = pool.length - 1; i > 0; i -= 1) {
@@ -25,6 +33,193 @@ function pickRandomItems(items: readonly string[], count: number) {
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
   return pool.slice(0, Math.max(0, Math.min(count, pool.length)));
+}
+
+type CoverageItem = {
+  key: string;
+  label: string;
+  matched: boolean;
+};
+
+function inferCoverage(text: string, citations?: Citation[]): CoverageItem[] {
+  const lower = text.toLowerCase();
+  return [
+    {
+      key: "plan",
+      label: "Plan evidence",
+      matched: (citations?.length ?? 0) > 0,
+    },
+    {
+      key: "limits",
+      label: "Data limits",
+      matched: /insufficient|missing|not enough|unclear|cannot determine/.test(lower),
+    },
+    {
+      key: "impact",
+      label: "Resident impact",
+      matched: /housing|zoning|density|golf course|trail|property|development/.test(lower),
+    },
+    {
+      key: "stats",
+      label: "Stats lens",
+      matched: /sample|confidence|bias|statistical|survey|margin of error/.test(lower),
+    },
+  ];
+}
+
+function sectionKind(title: string | null) {
+  if (!title) return "general";
+  const lower = title.toLowerCase();
+  if (/what the plan says|plan says|plan evidence/.test(lower)) return "plan";
+  if (/supporting documents add|supporting context|supporting evidence/.test(lower)) return "support";
+  if (/risk|concern|warning|impact/.test(lower)) return "risk";
+  if (/evidence|quote|source|fact|finding/.test(lower)) return "evidence";
+  if (/next|ask|action|option|recommend/.test(lower)) return "next";
+  return "general";
+}
+
+function SectionIcon({ kind }: { kind: "plan" | "support" | "risk" | "evidence" | "next" | "general" }) {
+  if (kind === "plan") {
+    return (
+      <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M4 3h12v14H4z" />
+        <path d="M7 7h6M7 10h6M7 13h4" />
+      </svg>
+    );
+  }
+  if (kind === "support") {
+    return (
+      <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M4 6h12M4 10h12M4 14h12" />
+        <circle cx="6" cy="6" r="0.8" fill="currentColor" stroke="none" />
+        <circle cx="6" cy="10" r="0.8" fill="currentColor" stroke="none" />
+        <circle cx="6" cy="14" r="0.8" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+  if (kind === "risk") {
+    return (
+      <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="m10 2 8 14H2z" />
+        <path d="M10 7v4" />
+        <circle cx="10" cy="14" r="0.8" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+  if (kind === "evidence") {
+    return (
+      <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <rect x="4" y="3" width="12" height="14" rx="1.5" />
+        <path d="M7 7h6M7 10h6M7 13h4" />
+      </svg>
+    );
+  }
+  if (kind === "next") {
+    return (
+      <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M4 10h11" />
+        <path d="m11 6 4 4-4 4" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <circle cx="10" cy="10" r="7" />
+      <circle cx="10" cy="10" r="1.4" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function reporterTake(title: string | null, text: string, index: number) {
+  const kind = sectionKind(title);
+  if (kind === "plan") return "Hot take: This is the core plan language to anchor on.";
+  if (kind === "support") return "Hot take: Context helps, but the plan still leads the story.";
+  if (kind === "risk") return "Hot take: Watch this one closely before decisions harden.";
+  if (kind === "evidence") return "Hot take: This is the part worth quoting directly.";
+  if (kind === "next") return "Hot take: Best follow-up questions start right here.";
+  if (/statistical|sample|survey|confidence|margin of error/i.test(text)) {
+    return "Hot take: Good story, but check the math behind the headline.";
+  }
+  const fallback = [
+    "Hot take: The details here matter more than the slogans.",
+    "Hot take: This section is where policy meets real life.",
+    "Hot take: Keep an eye on what this implies over time.",
+  ];
+  return fallback[index % fallback.length] ?? fallback[0];
+}
+
+type CitationKind = "plan" | "council" | "planning" | "policy" | "other";
+
+function classifyCitationKind(citation: Citation): CitationKind {
+  const title = (citation.docTitle ?? citation.label).toLowerCase();
+  if (citation.sourceType === "plan" || /general plan/.test(title)) return "plan";
+  if (/city council|council meeting/.test(title)) return "council";
+  if (/planning commission|planning meeting/.test(title)) return "planning";
+  if (/utah|davis county|code|ordinance|statute|policy|zoning/.test(title)) return "policy";
+  return "other";
+}
+
+function citationKindLabel(kind: CitationKind) {
+  if (kind === "plan") return "General Plan";
+  if (kind === "council") return "City Council Meeting";
+  if (kind === "planning") return "Planning Meeting";
+  if (kind === "policy") return "Policy / Law";
+  return "Other Source";
+}
+
+function CitationTypeIcon({ kind }: { kind: CitationKind }) {
+  if (kind === "plan") {
+    return (
+      <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <rect x="4" y="3" width="12" height="14" rx="1.5" />
+        <path d="M7 7h6M7 10h6M7 13h4" />
+      </svg>
+    );
+  }
+  if (kind === "council") {
+    return (
+      <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M4 16h12" />
+        <path d="M6 16V9h8v7" />
+        <path d="m3 9 7-4 7 4" />
+      </svg>
+    );
+  }
+  if (kind === "planning") {
+    return (
+      <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <circle cx="8" cy="8" r="4" />
+        <path d="M11 11 16 16" />
+      </svg>
+    );
+  }
+  if (kind === "policy") {
+    return (
+      <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M6 3h8v14l-4-2-4 2z" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <circle cx="10" cy="10" r="7" />
+      <circle cx="10" cy="10" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function citationKindTone(kind: CitationKind) {
+  if (kind === "plan") return "bg-[#f4e4ee] text-[#7a2f59]";
+  if (kind === "council") return "bg-[#e7eefc] text-[#274a9b]";
+  if (kind === "planning") return "bg-[#e8f3ed] text-[#2d7f3b]";
+  if (kind === "policy") return "bg-[#f3efe5] text-[#83631a]";
+  return "bg-slate-200 text-slate-700";
+}
+
+function sectionCardTone(kind: string) {
+  if (kind === "plan") return "border-[#dba4c2] bg-[#fff9fc]";
+  if (kind === "support") return "border-[#c8d4ec] bg-[#f8faff]";
+  return "border-[#ead5e2] bg-white/80";
 }
 
 function stripCitationArtifacts(text: string) {
@@ -131,7 +326,13 @@ function renderInlineMarkdown(
 
 function renderMarkdownBlocks(text: string, citations: Citation[] | undefined, onOpenSources: (items: Citation[]) => void) {
   const lines = text.split("\n").map((l) => l.trimEnd());
-  const out: ReactNode[] = [];
+  const sections: Section[] = [{ title: null, nodes: [], plainText: [] }];
+  const current = () => sections[sections.length - 1];
+  const pushNode = (node: ReactNode, plain = "") => {
+    const target = current();
+    target.nodes.push(node);
+    if (plain.trim()) target.plainText.push(plain.trim());
+  };
   let i = 0;
   let key = 0;
 
@@ -148,12 +349,13 @@ function renderMarkdownBlocks(text: string, citations: Citation[] | undefined, o
         items.push(lines[i].trim().replace(/^[-*]\s+/, ""));
         i += 1;
       }
-      out.push(
+      pushNode(
         <ul key={`blk-${key++}`} className="list-disc space-y-2 pl-5">
           {items.map((item, idx) => (
             <li key={`li-${idx}`}>{renderInlineMarkdown(item, citations, onOpenSources)}</li>
           ))}
-        </ul>
+        </ul>,
+        items.join(" ")
       );
       continue;
     }
@@ -164,36 +366,61 @@ function renderMarkdownBlocks(text: string, citations: Citation[] | undefined, o
         items.push(lines[i].trim().replace(/^\d+\.\s+/, ""));
         i += 1;
       }
-      out.push(
+      pushNode(
         <ol key={`blk-${key++}`} className="list-decimal space-y-2 pl-5">
           {items.map((item, idx) => (
             <li key={`li-${idx}`}>{renderInlineMarkdown(item, citations, onOpenSources)}</li>
           ))}
-        </ol>
+        </ol>,
+        items.join(" ")
       );
       continue;
     }
 
     if (/^#{1,3}\s+/.test(line)) {
       const heading = line.replace(/^#{1,3}\s+/, "");
-      out.push(
-        <h3 key={`blk-${key++}`} className="font-semibold">
-          {renderInlineMarkdown(heading, citations, onOpenSources)}
-        </h3>
-      );
+      sections.push({ title: heading, nodes: [], plainText: [] });
       i += 1;
       continue;
     }
 
-    out.push(
+    const boldTitleMatch = line.match(/^\*\*([^*]+)\*\*:?$/);
+    if (boldTitleMatch) {
+      const boldHeading = boldTitleMatch[1] ?? "";
+      sections.push({ title: boldHeading, nodes: [], plainText: [] });
+      i += 1;
+      continue;
+    }
+
+    pushNode(
       <p key={`blk-${key++}`} className="whitespace-pre-wrap">
         {renderInlineMarkdown(line, citations, onOpenSources)}
-      </p>
+      </p>,
+      line
     );
     i += 1;
   }
 
-  return out;
+  return sections
+    .filter((s) => s.nodes.length > 0)
+    .map((section, idx) => {
+      if (!section.title) return <div key={`sec-${idx}`}>{section.nodes}</div>;
+      const kind = sectionKind(section.title);
+      return (
+        <div key={`sec-${idx}`} className="mb-3">
+          <section className={`rounded-xl border p-3 sm:p-4 ${sectionCardTone(kind)}`}>
+            <h3 className="mb-2 flex items-center gap-2 font-semibold text-[#970747]">
+              <SectionIcon kind={kind} />
+              {renderInlineMarkdown(section.title, citations, onOpenSources)}
+            </h3>
+            <div className="space-y-2">{section.nodes}</div>
+            <div className="mt-2 ml-4 rounded-md bg-[#f4e4ee] px-3 py-2 text-sm italic text-[#7b3a5c]">
+              {reporterTake(section.title, section.plainText.join(" "), idx)}
+            </div>
+          </section>
+        </div>
+      );
+    });
 }
 
 export function ChatShell() {
@@ -217,8 +444,8 @@ export function ChatShell() {
   const [thinkingText, setThinkingText] = useState(thinkingPhrases[0]);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [sourcePanel, setSourcePanel] = useState<{ citations: Citation[] } | null>(null);
-  const starters = useMemo(() => pickRandomItems(APP_CONFIG.starters, 3), []);
-  const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const [starters, setStarters] = useState<string[]>(() => APP_CONFIG.starters.slice(0, 3));
+  const latestAssistantRef = useRef<HTMLElement | null>(null);
 
   function openSources(citations: Citation[]) {
     setSourcePanel({ citations: citations.length ? citations : [] });
@@ -228,7 +455,9 @@ export function ChatShell() {
 
   useEffect(() => {
     if (!started) return;
-    messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const last = turns[turns.length - 1];
+    if (!last || last.role !== "assistant") return;
+    latestAssistantRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [turns, started]);
 
   useEffect(() => {
@@ -246,6 +475,10 @@ export function ChatShell() {
 
     return () => window.clearInterval(id);
   }, [loading, thinkingPhrases]);
+
+  useEffect(() => {
+    setStarters(pickRandomItems(APP_CONFIG.starters, 3));
+  }, []);
 
   async function ask(question: string) {
     if (!question.trim()) return;
@@ -355,13 +588,34 @@ export function ChatShell() {
     <section className="flex min-h-screen flex-col pb-4 pt-4">
       <div className="mx-auto w-full max-w-3xl flex-1 overflow-auto pb-28 pt-6">
         {turns.map((turn, idx) => (
-          <article key={`${turn.role}-${idx}`} className="mb-8">
+          <article
+            key={`${turn.role}-${idx}`}
+            className="mb-8"
+            ref={turn.role === "assistant" && idx === turns.length - 1 ? latestAssistantRef : undefined}
+          >
             <div className="mb-2 text-xs uppercase tracking-wide text-[#666a73]">{turn.role === "user" ? "You" : "Assistant"}</div>
             <div
               className={`relative text-[15px] leading-7 text-[#1f2125] ${
                 turn.role === "assistant" ? "rounded-2xl bg-[#f0f2f4] p-4" : "whitespace-pre-wrap"
               }`}
             >
+              {turn.role === "assistant" ? (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {inferCoverage(turn.text, turn.citations).map((item) => (
+                    <span
+                      key={item.key}
+                      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wide ${
+                        item.matched
+                          ? "border-[#cc8db1] bg-white text-[#7a2f59]"
+                          : "border-slate-300 bg-slate-100 text-[#7a7f88]"
+                      }`}
+                    >
+                      <span aria-hidden="true">{item.matched ? "✓" : "○"}</span>
+                      <span>{item.label}</span>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               {turn.role === "assistant"
                 ? renderMarkdownBlocks(stripCitationArtifacts(turn.text), turn.citations, openSources)
                 : turn.text}
@@ -401,7 +655,6 @@ export function ChatShell() {
             <div className="relative whitespace-pre-wrap text-[15px] italic leading-7 text-[#4e525a]">{thinkingText}</div>
           </article>
         ) : null}
-        <div ref={messageEndRef} />
       </div>
 
       <form onSubmit={onSubmit} className="fixed bottom-0 left-0 right-0 bg-[#f7f7f8] px-4 pb-5 pt-3">
@@ -446,9 +699,19 @@ export function ChatShell() {
               </button>
             </div>
             <ul className="max-h-[58vh] space-y-2 overflow-auto text-sm">
-              {sourcePanel.citations.map((c) => (
+              {sourcePanel.citations.map((c) => {
+                const kind = classifyCitationKind(c);
+                return (
                 <li key={c.id} className="bg-slate-50 p-2 text-[#222429]">
-                  <p className="font-semibold">{c.label}</p>
+                  <p className="flex items-center gap-2 font-semibold">
+                    <span
+                      title={citationKindLabel(kind)}
+                      className={`inline-flex h-6 w-6 items-center justify-center rounded-full ${citationKindTone(kind)}`}
+                    >
+                      <CitationTypeIcon kind={kind} />
+                    </span>
+                    <span>{c.label}</span>
+                  </p>
                   <p className="mt-1 text-xs">&quot;{c.quote}&quot;</p>
                   {c.url ? (
                     <a
@@ -461,7 +724,8 @@ export function ChatShell() {
                     </a>
                   ) : null}
                 </li>
-              ))}
+              );
+              })}
             </ul>
           </div>
         </div>

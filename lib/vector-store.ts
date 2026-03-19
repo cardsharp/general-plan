@@ -87,6 +87,13 @@ function buildFtsQuery(input: string) {
   return tokens.join(" OR ");
 }
 
+function envNumber(name: string, fallback: number) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export async function upsertChunk(chunk: Chunk, embedding: number[]) {
   const db = getSqlite();
   const contentHash = hashText(chunk.text);
@@ -282,6 +289,10 @@ export async function upsertWebSourceState(input: {
 export async function searchChunks(queryText: string, queryEmbedding: number[], limit = 8): Promise<Chunk[]> {
   const db = getSqlite();
   const ftsQuery = buildFtsQuery(queryText);
+  const planSourceBoost = envNumber("PLAN_SOURCE_BOOST", 0.2);
+  const planTitleBoost = envNumber("PLAN_TITLE_BOOST", 0.15);
+  const lexicalBoostBase = envNumber("LEXICAL_BOOST_BASE", 0.05);
+  const lexicalBoostDecay = envNumber("LEXICAL_BOOST_DECAY", 0.00025);
 
   let rows: StoredChunkRow[] = [];
   if (ftsQuery) {
@@ -324,11 +335,13 @@ export async function searchChunks(queryText: string, queryEmbedding: number[], 
   const ranked = rows
     .map((row, idx) => {
       const embedding = fromEmbeddingBlob(row.embedding_blob);
-      if (!embedding) {
-        // Keep lexical-only rows usable when embeddings are deferred.
-        return { row, score: 0.01 / (idx + 1) };
-      }
-      return { row, score: cosineSimilarity(queryEmbedding, embedding) };
+      const semanticScore = embedding ? cosineSimilarity(queryEmbedding, embedding) : 0;
+      const lexicalScore = ftsQuery ? Math.max(0, lexicalBoostBase - idx * lexicalBoostDecay) : 0;
+      const sourceScore = row.source_type === "plan" ? planSourceBoost : 0;
+      const titleScore = /fruit heights general plan/i.test(row.doc_title) ? planTitleBoost : 0;
+      // Favor city-plan chunks while still preserving semantic relevance ordering.
+      const score = semanticScore + lexicalScore + sourceScore + titleScore;
+      return { row, score };
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
