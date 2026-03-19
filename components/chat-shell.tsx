@@ -18,6 +18,15 @@ type Turn = {
   nextOptions?: string[];
 };
 
+function pickRandomItems(items: readonly string[], count: number) {
+  const pool = [...items];
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, Math.max(0, Math.min(count, pool.length)));
+}
+
 function stripCitationArtifacts(text: string) {
   const noInlineCitations = text.replace(/\[(?:p|page)\s*[x]+\s*(?:¶|para(?:graph)?)\s*[y]+\]/gi, "");
 
@@ -208,7 +217,7 @@ export function ChatShell() {
   const [thinkingText, setThinkingText] = useState(thinkingPhrases[0]);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [sourcePanel, setSourcePanel] = useState<{ citations: Citation[] } | null>(null);
-  const starters = useMemo(() => APP_CONFIG.starters, []);
+  const starters = useMemo(() => pickRandomItems(APP_CONFIG.starters, 3), []);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
 
   function openSources(citations: Citation[]) {
