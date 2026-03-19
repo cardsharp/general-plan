@@ -26,7 +26,7 @@ export async function runChatModel(input: {
 
   const ai = new GoogleGenAI({ apiKey: key });
   const res = await ai.models.generateContent({
-    model: process.env.CHAT_MODEL || "gemini-2.5-flash",
+    model: process.env.CHAT_MODEL || "gemini-3-flash-preview",
     config: { systemInstruction: input.system },
     contents: input.user,
   });

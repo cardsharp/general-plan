@@ -6,10 +6,57 @@ import BetterSqlite3 from "better-sqlite3";
 type SqliteDb = ReturnType<typeof BetterSqlite3>;
 
 let db: SqliteDb | null = null;
+let startupLogged = false;
 
 function getDbPath() {
   const raw = process.env.SQLITE_PATH || "./data/app.db";
   return path.resolve(raw);
+}
+
+function logSqliteStartup(dbPath: string) {
+  const enabled = process.env.SQLITE_STARTUP_LOG !== "false";
+  if (!enabled || startupLogged) return;
+  startupLogged = true;
+
+  const dir = path.dirname(dbPath);
+  const fileExists = fs.existsSync(dbPath);
+  let fileMeta: { bytes?: number; mtime?: string } = {};
+  if (fileExists) {
+    try {
+      const st = fs.statSync(dbPath);
+      fileMeta = { bytes: st.size, mtime: st.mtime.toISOString() };
+    } catch {
+      // ignore stat errors in debug output
+    }
+  }
+
+  let dirItems: Array<{ name: string; bytes: number | null; isDir: boolean }> = [];
+  try {
+    dirItems = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .map((d) => {
+        const full = path.join(dir, d.name);
+        try {
+          const st = fs.statSync(full);
+          return { name: d.name, bytes: st.size, isDir: d.isDirectory() };
+        } catch {
+          return { name: d.name, bytes: null, isDir: d.isDirectory() };
+        }
+      })
+      .sort((a, b) => (a.name < b.name ? -1 : 1));
+  } catch {
+    dirItems = [];
+  }
+
+  console.log("[sqlite][startup]", {
+    cwd: process.cwd(),
+    sqlitePathRaw: process.env.SQLITE_PATH || "./data/app.db",
+    sqlitePathResolved: dbPath,
+    fileExists,
+    ...fileMeta,
+    dir,
+    dirItems,
+  });
 }
 
 function ensureSchema(conn: SqliteDb) {
@@ -149,6 +196,7 @@ export function getSqlite() {
   if (db) return db;
 
   const dbPath = getDbPath();
+  logSqliteStartup(dbPath);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   db = new BetterSqlite3(dbPath);
   db.pragma("journal_mode = WAL");
