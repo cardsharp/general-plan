@@ -25,7 +25,11 @@ function stripCitationArtifacts(text: string) {
     /(^|\n)\s*(?:\*\*)?\s*sources\s*:?\s*(?:\*\*)?\s*(\n|$)/i
   );
   const trimmed = sourcesStart >= 0 ? noInlineCitations.slice(0, sourcesStart) : noInlineCitations;
-  return trimmed.trim();
+  const noBlockquoteMarkers = trimmed
+    .split("\n")
+    .map((line) => line.replace(/^\s*>\s?/, ""))
+    .join("\n");
+  return noBlockquoteMarkers.trim();
 }
 
 function citationKey(page: string, paragraph: string) {
@@ -136,7 +140,7 @@ function renderMarkdownBlocks(text: string, citations: Citation[] | undefined, o
         i += 1;
       }
       out.push(
-        <ul key={`blk-${key++}`} className="list-disc space-y-1 pl-5">
+        <ul key={`blk-${key++}`} className="list-disc space-y-2 pl-5">
           {items.map((item, idx) => (
             <li key={`li-${idx}`}>{renderInlineMarkdown(item, citations, onOpenSources)}</li>
           ))}
@@ -152,7 +156,7 @@ function renderMarkdownBlocks(text: string, citations: Citation[] | undefined, o
         i += 1;
       }
       out.push(
-        <ol key={`blk-${key++}`} className="list-decimal space-y-1 pl-5">
+        <ol key={`blk-${key++}`} className="list-decimal space-y-2 pl-5">
           {items.map((item, idx) => (
             <li key={`li-${idx}`}>{renderInlineMarkdown(item, citations, onOpenSources)}</li>
           ))}
