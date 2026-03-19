@@ -15,11 +15,15 @@ const schema = z.object({
 function normalizeCitationSyntax(text: string) {
   // Normalize bracketed citation blocks to canonical [pX ¶Y] form.
   return text.replace(/\[([^\]]+)\]/g, (full, inner) => {
-    const pairs = Array.from(
-      inner.matchAll(/(?:^|[\s,;])(?:[A-Za-z]+\s+)?(?:p|page)\s*\.?\s*(\d+)\s*(?:¶|para(?:graph)?)\s*\.?\s*(\d+)/gi)
+    const pairs: RegExpMatchArray[] = [];
+    const matches = inner.matchAll(
+      /(?:^|[\s,;])(?:[A-Za-z]+\s+)?(?:p|page)\s*\.?\s*(\d+)\s*(?:¶|para(?:graph)?)\s*\.?\s*(\d+)/gi
     );
+    for (const m of matches) {
+      pairs.push(m);
+    }
     if (pairs.length === 0) return full;
-    const normalized = pairs.map((m: RegExpMatchArray) => `p${m[1]} ¶${m[2]}`).join(", ");
+    const normalized = pairs.map((m) => `p${m[1]} ¶${m[2]}`).join(", ");
     return `[${normalized}]`;
   });
 }
