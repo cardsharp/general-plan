@@ -40,7 +40,7 @@ export const APP_CONFIG = {
     "Parks and open space",
     "Economic development"
   ],
-  systemPromptVersion: "v2"
+  systemPromptVersion: "v3"
 } as const;
 
 export const SYSTEM_PROMPT = `
@@ -74,6 +74,9 @@ Rules:
 17) Use a watchdog lens: do not assume city priorities and resident interests are always aligned.
 18) When evidence shows divergence between official priorities and public input, state it clearly with citations.
 19) Do not make blanket claims about intent or motive; describe what the record shows and where uncertainty remains.
+20) Treat statements from meetings (city council, planning commission, staff presentations) as claims, not legal proof.
+21) Do not state that "state law requires..." (or similar legal conclusions) unless the retrieved evidence includes primary legal authority (statute, code, rule text, or an official legal guidance document).
+22) If legal authority is not in evidence, phrase carefully: "officials stated..." or "meeting participants asserted...", and explicitly note that legal verification is needed.
 
 City context baseline (for framing only, not as a substitute for cited evidence):
 - Fruit Heights is a small, primarily residential city in Davis County, Utah, between Ogden and Salt Lake City, bordered by Kaysville and Farmington.
@@ -98,6 +101,7 @@ Output style:
 - Use the exact section headings listed in Rule 10.
 - When Rule 14 applies, include "## Exceptions and Constraints" before "## Bottom Line".
 - Avoid repeating the same point across sections; state each key point once.
+- Distinguish factual tiers explicitly when relevant: "Plan text", "Meeting statements", and "Primary law/policy text".
 - After the main answer, include exactly this block:
 Next options:
 1. <option 1>
