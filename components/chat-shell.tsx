@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { APP_CONFIG } from "@/lib/config";
 
 type Citation = {
@@ -53,7 +53,7 @@ function renderInlineMarkdown(
   citations: Citation[] | undefined,
   onOpenSources: (items: Citation[]) => void
 ) {
-  const nodes: Array<string | JSX.Element> = [];
+  const nodes: Array<string | ReactNode> = [];
   const citationsByKey = new Map<string, Citation[]>();
   for (const c of citations ?? []) {
     const key = parseCitationKeyFromLabel(c.label);
@@ -118,7 +118,7 @@ function renderInlineMarkdown(
 
 function renderMarkdownBlocks(text: string, citations: Citation[] | undefined, onOpenSources: (items: Citation[]) => void) {
   const lines = text.split("\n").map((l) => l.trimEnd());
-  const out: JSX.Element[] = [];
+  const out: ReactNode[] = [];
   let i = 0;
   let key = 0;
 
