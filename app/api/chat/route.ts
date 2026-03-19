@@ -32,9 +32,16 @@ function defaultNextOptions(question: string) {
   const short = question.trim().slice(0, 120);
   return [
     `Give me a brief 3-bullet summary of: ${short}`,
-    `Show the strongest quotes and sources for this topic`,
+    `Show the strongest quotes and sources for: ${short}`,
     `What are the top risks and what should I ask next?`,
   ];
+}
+
+function contextualizeOption(option: string, question: string) {
+  const short = question.trim().slice(0, 120);
+  const needsContext = /\b(this topic|this issue|this subject|this|that)\b/i.test(option);
+  if (!needsContext) return option;
+  return `${option.replace(/\b(this topic|this issue|this subject|this|that)\b/gi, "this question")} (${short})`;
 }
 
 function extractNextOptions(answer: string, question: string) {
@@ -75,8 +82,9 @@ function extractNextOptions(answer: string, question: string) {
     const option = trimmed.replace(/^[-*•]\s+/, "").replace(/^\d+[.)]\s+/, "").trim();
     if (!option) continue;
     if (option.length > 140) continue;
-    if (!options.some((o) => o.toLowerCase() === option.toLowerCase())) {
-      options.push(option);
+    const contextOption = contextualizeOption(option, question);
+    if (!options.some((o) => o.toLowerCase() === contextOption.toLowerCase())) {
+      options.push(contextOption);
     }
     if (options.length >= 3) {
       break;
@@ -93,6 +101,7 @@ function extractNextOptions(answer: string, question: string) {
 
 export async function POST(request: NextRequest) {
   try {
+    const enforceCitationGuard = process.env.ENFORCE_CITATION_GUARD === "true";
     const body = schema.parse(await request.json());
     const theme = classifyTheme(body.message);
 
@@ -107,18 +116,20 @@ export async function POST(request: NextRequest) {
     });
 
     const firstPassNormalized = normalizeCitationSyntax(firstPass);
-    const firstValidation = validateGroundedAnswer(firstPassNormalized, chunks);
     let answer = firstPassNormalized;
 
-    if (!firstValidation.ok) {
-      const secondPass = await runChatModel({
-        system: SYSTEM_PROMPT,
-        user: `${baseUserPrompt}\n\n${buildStrictRepairPrompt(firstValidation.reason)}`,
-      });
+    if (enforceCitationGuard) {
+      const firstValidation = validateGroundedAnswer(firstPassNormalized, chunks);
+      if (!firstValidation.ok) {
+        const secondPass = await runChatModel({
+          system: SYSTEM_PROMPT,
+          user: `${baseUserPrompt}\n\n${buildStrictRepairPrompt(firstValidation.reason)}`,
+        });
 
-      const secondPassNormalized = normalizeCitationSyntax(secondPass);
-      const secondValidation = validateGroundedAnswer(secondPassNormalized, chunks);
-      answer = secondValidation.ok ? secondPassNormalized : buildSafeFallback(chunks, body.message);
+        const secondPassNormalized = normalizeCitationSyntax(secondPass);
+        const secondValidation = validateGroundedAnswer(secondPassNormalized, chunks);
+        answer = secondValidation.ok ? secondPassNormalized : buildSafeFallback(chunks, body.message);
+      }
     }
 
     const { cleanAnswer, nextOptions } = extractNextOptions(answer, body.message);
