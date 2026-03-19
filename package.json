@@ -1,0 +1,44 @@
+{
+  "name": "explore-fruit-heights-city-plan",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "mcp:tools": "tsx scripts/discover-mcp-tools.ts",
+    "ingest:pdf": "tsx scripts/ingest-pdf.ts",
+    "ingest:web": "tsx scripts/ingest-web.ts",
+    "ingest:transcript": "tsx scripts/ingest-transcript.ts",
+    "ingest:youtube": "tsx scripts/ingest-youtube-direct.ts",
+    "ingest:youtube:mcp": "tsx scripts/ingest-youtube-mcp.ts",
+    "embed:pending": "tsx scripts/embed-pending.ts",
+    "reembed:all": "tsx scripts/reembed-all.ts",
+    "embed:test": "tsx scripts/test-embed-target.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.4",
+    "@google/genai": "^0.11.0",
+    "better-sqlite3": "^11.8.1",
+    "dotenv": "^16.4.7",
+    "next": "^15.5.12",
+    "openai": "^4.91.1",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^9.22.0",
+    "eslint-config-next": "^15.5.12",
+    "pdfjs-dist": "^4.10.38",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
