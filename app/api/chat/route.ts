@@ -11,6 +11,12 @@ import { buildSafeFallback, buildStrictRepairPrompt, validateGroundedAnswer } fr
 const schema = z.object({
   message: z.string().min(3),
 });
+const CHAT_DEBUG = process.env.CHAT_DEBUG === "true";
+
+function logChat(requestId: string, event: string, data: Record<string, unknown>) {
+  if (!CHAT_DEBUG) return;
+  console.log(`[chat][${requestId}] ${event}`, data);
+}
 
 function normalizeCitationSyntax(text: string) {
   // Normalize bracketed citation blocks to canonical [pX ¶Y] form.
@@ -101,14 +107,27 @@ function extractNextOptions(answer: string, question: string) {
 
 export async function POST(request: NextRequest) {
   try {
+    const requestId = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+    const startedAt = Date.now();
     const enforceCitationGuard = process.env.ENFORCE_CITATION_GUARD === "true";
     const body = schema.parse(await request.json());
     const theme = classifyTheme(body.message);
+    logChat(requestId, "start", {
+      messageChars: body.message.length,
+      enforceCitationGuard,
+      theme,
+    });
 
     const queryEmbedding = await embedText(body.message);
     const chunks = await searchChunks(body.message, queryEmbedding, 10);
     const context = buildContext(chunks);
     const baseUserPrompt = buildUserPrompt(body.message, context);
+    logChat(requestId, "retrieval", {
+      chunks: chunks.length,
+      topChunk: chunks[0]
+        ? { doc: chunks[0].doc_title, page: chunks[0].page, paragraph: chunks[0].paragraph }
+        : null,
+    });
 
     const firstPass = await runChatModel({
       system: SYSTEM_PROMPT,
@@ -120,6 +139,7 @@ export async function POST(request: NextRequest) {
 
     if (enforceCitationGuard) {
       const firstValidation = validateGroundedAnswer(firstPassNormalized, chunks);
+      logChat(requestId, "guard.firstValidation", firstValidation.ok ? { ok: true } : firstValidation);
       if (!firstValidation.ok) {
         const secondPass = await runChatModel({
           system: SYSTEM_PROMPT,
@@ -128,11 +148,20 @@ export async function POST(request: NextRequest) {
 
         const secondPassNormalized = normalizeCitationSyntax(secondPass);
         const secondValidation = validateGroundedAnswer(secondPassNormalized, chunks);
+        logChat(requestId, "guard.secondValidation", secondValidation.ok ? { ok: true } : secondValidation);
         answer = secondValidation.ok ? secondPassNormalized : buildSafeFallback(chunks, body.message);
+        logChat(requestId, "guard.finalDecision", {
+          usedFallback: !secondValidation.ok,
+        });
       }
     }
 
     const { cleanAnswer, nextOptions } = extractNextOptions(answer, body.message);
+    logChat(requestId, "finish", {
+      answerChars: cleanAnswer.length,
+      nextOptions: nextOptions.length,
+      elapsedMs: Date.now() - startedAt,
+    });
 
     await recordThemeEvent(body.message, theme);
 
@@ -149,6 +178,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
+    if (CHAT_DEBUG) {
+      console.error("[chat][error]", message);
+    }
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
