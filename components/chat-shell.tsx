@@ -13,11 +13,41 @@ type Citation = {
 };
 
 type Turn = {
+  id: string;
   role: "user" | "assistant";
   text: string;
   citations?: Citation[];
   theme?: string;
   nextOptions?: string[];
+};
+
+type FeedbackCategory =
+  | "Incorrect or incomplete"
+  | "Not what I asked for"
+  | "Slow or buggy"
+  | "Style or tone"
+  | "Safety or legal concern"
+  | "Other";
+
+const FEEDBACK_CATEGORIES: FeedbackCategory[] = [
+  "Incorrect or incomplete",
+  "Not what I asked for",
+  "Slow or buggy",
+  "Style or tone",
+  "Safety or legal concern",
+  "Other",
+];
+
+type FeedbackState = {
+  vote: "up" | "down";
+  category?: FeedbackCategory;
+  details?: string;
+};
+
+type FeedbackDraft = {
+  turnId: string;
+  category: FeedbackCategory;
+  details: string;
 };
 
 type Section = {
@@ -256,6 +286,32 @@ function SourceIcon() {
   );
 }
 
+function ThumbUpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M9 11V5.5c0-.8.3-1.5.9-2.1L11 2l1.3 1.3c.5.5.7 1.2.6 1.9l-.5 3.8H18a2 2 0 0 1 2 2.4l-1 6A2 2 0 0 1 17 19H9" />
+      <path d="M5 10h4v9H5z" />
+    </svg>
+  );
+}
+
+function ThumbDownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M15 13v5.5c0 .8-.3 1.5-.9 2.1L13 22l-1.3-1.3c-.5-.5-.7-1.2-.6-1.9l.5-3.8H6a2 2 0 0 1-2-2.4l1-6A2 2 0 0 1 7 5h8" />
+      <path d="M15 5h4v9h-4z" />
+    </svg>
+  );
+}
+
+function FacebookIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
+      <path d="M13.5 22v-8h2.7l.4-3h-3.1V9.1c0-.9.3-1.5 1.6-1.5h1.7V5c-.3 0-1.3-.1-2.4-.1-2.4 0-4 1.5-4 4.2V11H8v3h2.4v8h3.1z" />
+    </svg>
+  );
+}
+
 function renderInlineMarkdown(
   input: string,
   citations: Citation[] | undefined,
@@ -414,7 +470,7 @@ function renderMarkdownBlocks(text: string, citations: Citation[] | undefined, o
               {renderInlineMarkdown(section.title, citations, onOpenSources)}
             </h3>
             <div className="space-y-2">{section.nodes}</div>
-            <div className="mt-2 ml-4 rounded-md bg-[#f4e4ee] px-3 py-2 text-sm italic text-[#7b3a5c]">
+            <div className="mt-2 ml-4 rounded-md border-l-2 border-l-[#2d7f3b] bg-[#f4e4ee] px-3 py-2 text-sm italic text-[#7b3a5c]">
               {reporterTake(section.title, section.plainText.join(" "), idx)}
             </div>
           </section>
@@ -445,6 +501,9 @@ export function ChatShell() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [sourcePanel, setSourcePanel] = useState<{ citations: Citation[] } | null>(null);
   const [starters, setStarters] = useState<string[]>(() => APP_CONFIG.starters.slice(0, 3));
+  const [feedbackByTurn, setFeedbackByTurn] = useState<Record<string, FeedbackState>>({});
+  const [feedbackDraft, setFeedbackDraft] = useState<FeedbackDraft | null>(null);
+  const [sendingFeedback, setSendingFeedback] = useState(false);
   const latestAssistantRef = useRef<HTMLElement | null>(null);
 
   function openSources(citations: Citation[]) {
@@ -482,7 +541,7 @@ export function ChatShell() {
 
   async function ask(question: string) {
     if (!question.trim()) return;
-    setTurns((old) => [...old, { role: "user", text: question }]);
+    setTurns((old) => [...old, { id: `u-${Date.now()}-${old.length}`, role: "user", text: question }]);
     setLoading(true);
     setInput("");
 
@@ -499,6 +558,7 @@ export function ChatShell() {
       setTurns((old) => [
         ...old,
         {
+          id: `a-${Date.now()}-${old.length}`,
           role: "assistant",
           text: data.answer,
           citations: data.citations,
@@ -510,6 +570,7 @@ export function ChatShell() {
       setTurns((old) => [
         ...old,
         {
+          id: `a-${Date.now()}-${old.length}`,
           role: "assistant",
           text: `I hit an error: ${error instanceof Error ? error.message : "Unknown error"}`,
         },
@@ -522,6 +583,85 @@ export function ChatShell() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     await ask(input);
+  }
+
+  function shareOnFacebook() {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    if (!url) return;
+    const shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
+    window.open(shareUrl, "_blank", "noopener,noreferrer");
+  }
+
+  function priorUserQuestion(index: number) {
+    for (let i = index - 1; i >= 0; i -= 1) {
+      const turn = turns[i];
+      if (turn?.role === "user") return turn.text;
+    }
+    return "";
+  }
+
+  async function submitFeedback(inputFeedback: {
+    turnId: string;
+    vote: "up" | "down";
+    category?: FeedbackCategory;
+    details?: string;
+  }) {
+    const turnIndex = turns.findIndex((t) => t.id === inputFeedback.turnId);
+    const turn = turnIndex >= 0 ? turns[turnIndex] : null;
+    if (!turn || turn.role !== "assistant") return;
+    setSendingFeedback(true);
+    try {
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responseId: inputFeedback.turnId,
+          vote: inputFeedback.vote,
+          category: inputFeedback.category,
+          details: inputFeedback.details,
+          question: priorUserQuestion(turnIndex),
+          answerExcerpt: turn.text.slice(0, 1200),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Feedback submit failed");
+      setFeedbackByTurn((old) => ({
+        ...old,
+        [inputFeedback.turnId]: {
+          vote: inputFeedback.vote,
+          category: inputFeedback.category,
+          details: inputFeedback.details,
+        },
+      }));
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? error.message : "Failed to submit feedback.");
+    } finally {
+      setSendingFeedback(false);
+    }
+  }
+
+  async function clearFeedback(turnId: string) {
+    setSendingFeedback(true);
+    try {
+      const res = await fetch("/api/feedback", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ responseId: turnId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Feedback remove failed");
+      setFeedbackByTurn((old) => {
+        const next = { ...old };
+        delete next[turnId];
+        return next;
+      });
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? error.message : "Failed to remove feedback.");
+    } finally {
+      setSendingFeedback(false);
+    }
   }
 
   if (!started) {
@@ -589,7 +729,7 @@ export function ChatShell() {
       <div className="mx-auto w-full max-w-3xl flex-1 overflow-auto pb-28 pt-6">
         {turns.map((turn, idx) => (
           <article
-            key={`${turn.role}-${idx}`}
+            key={turn.id}
             className="mb-8"
             ref={turn.role === "assistant" && idx === turns.length - 1 ? latestAssistantRef : undefined}
           >
@@ -635,17 +775,77 @@ export function ChatShell() {
                 ))}
               </div>
             ) : null}
-            {turn.role === "assistant" && turn.citations?.length ? (
-              <button
-                type="button"
-                aria-label="Open sources"
-                onClick={() => openSources(turn.citations ?? [])}
-                className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#4e525a] underline hover:text-[#1f2125]"
-              >
-                <SourceIcon />
-                <span>Sources</span>
-                <span aria-hidden="true">▾</span>
-              </button>
+            {turn.role === "assistant" ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-[#4e525a]">
+                {turn.citations?.length ? (
+                  <button
+                    type="button"
+                    aria-label="Open sources"
+                    onClick={() => openSources(turn.citations ?? [])}
+                    className="inline-flex items-center gap-1 underline hover:text-[#1f2125]"
+                  >
+                    <SourceIcon />
+                    <span>Sources</span>
+                  </button>
+                ) : (
+                  <span>Sources</span>
+                )}
+                <span aria-hidden="true" className="text-slate-400">|</span>
+                <span>Leave Feedback</span>
+                <button
+                  type="button"
+                  aria-label="Thumbs up"
+                  onClick={() =>
+                    feedbackByTurn[turn.id]?.vote === "up"
+                      ? clearFeedback(turn.id)
+                      : submitFeedback({ turnId: turn.id, vote: "up" })
+                  }
+                  disabled={sendingFeedback}
+                  className={`inline-flex h-7 w-7 items-center justify-center rounded-full ring-1 ${
+                    feedbackByTurn[turn.id]?.vote === "up"
+                      ? "bg-[#970747] text-white ring-[#970747]"
+                      : "bg-white text-[#4e525a] ring-slate-300 hover:bg-slate-50 hover:text-[#1f2125]"
+                  }`}
+                  title="Thumbs up"
+                >
+                  <ThumbUpIcon />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Thumbs down"
+                  onClick={() => {
+                    if (feedbackByTurn[turn.id]?.vote === "down") {
+                      void clearFeedback(turn.id);
+                      return;
+                    }
+                    setFeedbackDraft({
+                      turnId: turn.id,
+                      category: feedbackByTurn[turn.id]?.category ?? "Incorrect or incomplete",
+                      details: feedbackByTurn[turn.id]?.details ?? "",
+                    });
+                  }}
+                  disabled={sendingFeedback}
+                  className={`inline-flex h-7 w-7 items-center justify-center rounded-full ring-1 ${
+                    feedbackByTurn[turn.id]?.vote === "down"
+                      ? "bg-[#970747] text-white ring-[#970747]"
+                      : "bg-white text-[#4e525a] ring-slate-300 hover:bg-slate-50 hover:text-[#1f2125]"
+                  }`}
+                  title="Thumbs down"
+                >
+                  <ThumbDownIcon />
+                </button>
+                <span aria-hidden="true" className="text-slate-400">|</span>
+                <button
+                  type="button"
+                  aria-label="Share on Facebook"
+                  onClick={shareOnFacebook}
+                  className="inline-flex items-center gap-1 hover:text-[#1f2125]"
+                  title="Share this tool on Facebook"
+                >
+                  <span>Share on Facebook</span>
+                  <FacebookIcon />
+                </button>
+              </div>
             ) : null}
           </article>
         ))}
@@ -727,6 +927,71 @@ export function ChatShell() {
               );
               })}
             </ul>
+          </div>
+        </div>
+      ) : null}
+
+      {feedbackDraft ? (
+        <div className="fixed inset-0 z-50 bg-black/25" onClick={() => setFeedbackDraft(null)} role="presentation">
+          <div
+            className="absolute left-1/2 top-24 w-[min(92vw,34rem)] -translate-x-1/2 rounded bg-white p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg text-[#970747]" style={{ fontFamily: "Lora, serif" }}>
+              Tell us what went wrong
+            </h3>
+            <p className="mt-1 text-sm text-[#4e525a]">Select a category and optionally share details.</p>
+            <div className="mt-3 space-y-2">
+              {FEEDBACK_CATEGORIES.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  onClick={() => setFeedbackDraft((old) => (old ? { ...old, category } : old))}
+                  className={`mr-2 mt-2 inline-flex rounded-full px-3 py-1.5 text-sm ring-1 ${
+                    feedbackDraft.category === category
+                      ? "bg-[#f4e4ee] text-[#7a2f59] ring-[#d6a0be]"
+                      : "bg-white text-[#4e525a] ring-slate-300 hover:bg-slate-50"
+                  }`}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+            <label className="mt-3 block text-sm font-semibold text-[#4e525a]">Share Details (optional)</label>
+            <textarea
+              value={feedbackDraft.details}
+              onChange={(e) => setFeedbackDraft((old) => (old ? { ...old, details: e.target.value } : old))}
+              rows={4}
+              className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm text-[#222429] outline-none focus:ring-2 focus:ring-[#970747]/30"
+              placeholder="What was missing, wrong, or unhelpful?"
+            />
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setFeedbackDraft(null)}
+                className="rounded bg-slate-100 px-3 py-1.5 text-sm text-[#4e525a] hover:bg-slate-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={sendingFeedback}
+                onClick={async () => {
+                  const draft = feedbackDraft;
+                  if (!draft) return;
+                  await submitFeedback({
+                    turnId: draft.turnId,
+                    vote: "down",
+                    category: draft.category,
+                    details: draft.details,
+                  });
+                  setFeedbackDraft(null);
+                }}
+                className="rounded bg-[#2d7f3b] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#266e33] disabled:opacity-60"
+              >
+                Submit
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

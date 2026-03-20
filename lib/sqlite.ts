@@ -98,9 +98,23 @@ function ensureSchema(conn: SqliteDb) {
       updated_at text not null default (datetime('now'))
     );
 
+    create table if not exists response_feedback (
+      id integer primary key autoincrement,
+      response_id text not null,
+      vote text not null check (vote in ('up', 'down')),
+      category text,
+      details text,
+      question text,
+      answer_excerpt text,
+      created_at text not null default (datetime('now'))
+    );
+
     create index if not exists idx_question_events_theme on question_events(theme);
     create index if not exists idx_document_chunks_doc on document_chunks(doc_id, page, paragraph);
     create index if not exists idx_document_chunks_content_hash on document_chunks(content_hash);
+    create index if not exists idx_response_feedback_created_at on response_feedback(created_at);
+    create index if not exists idx_response_feedback_vote on response_feedback(vote);
+    create index if not exists idx_response_feedback_category on response_feedback(category);
 
     create virtual table if not exists document_chunks_fts using fts5(
       id UNINDEXED,
