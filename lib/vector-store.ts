@@ -289,10 +289,11 @@ export async function upsertWebSourceState(input: {
 export async function searchChunks(queryText: string, queryEmbedding: number[], limit = 8): Promise<Chunk[]> {
   const db = getSqlite();
   const ftsQuery = buildFtsQuery(queryText);
-  const planSourceBoost = envNumber("PLAN_SOURCE_BOOST", 0.2);
-  const planTitleBoost = envNumber("PLAN_TITLE_BOOST", 0.15);
+  const planSourceBoost = envNumber("PLAN_SOURCE_BOOST", 0.3);
+  const planTitleBoost = envNumber("PLAN_TITLE_BOOST", 0.2);
   const lexicalBoostBase = envNumber("LEXICAL_BOOST_BASE", 0.05);
   const lexicalBoostDecay = envNumber("LEXICAL_BOOST_DECAY", 0.00025);
+  const planBackfillLimit = Math.max(20, Math.floor(envNumber("PLAN_BACKFILL_LIMIT", 180)));
 
   let rows: StoredChunkRow[] = [];
   if (ftsQuery) {
@@ -332,7 +333,56 @@ export async function searchChunks(queryText: string, queryEmbedding: number[], 
       .all() as StoredChunkRow[];
   }
 
-  const ranked = rows
+  const needsPlanBackfill = rows.length > 0 && !rows.some((row) => row.source_type === "plan");
+  let planRows: StoredChunkRow[] = [];
+
+  if (needsPlanBackfill && ftsQuery) {
+    planRows = db
+      .prepare(
+        `
+        select
+          dc.rowid as rowid,
+          dc.id,
+          dc.doc_id,
+          dc.doc_title,
+          dc.page,
+          dc.paragraph,
+          dc.text,
+          dc.source_type,
+          dc.url,
+          dc.embedding_blob
+        from document_chunks_fts fts
+        join document_chunks dc on dc.rowid = fts.rowid
+        where document_chunks_fts match ? and dc.source_type = 'plan'
+        order by bm25(document_chunks_fts)
+        limit ?
+        `
+      )
+      .all(ftsQuery, planBackfillLimit) as StoredChunkRow[];
+  }
+
+  if (planRows.length === 0) {
+    planRows = db
+      .prepare(
+        `
+        select rowid, id, doc_id, doc_title, page, paragraph, text, source_type, url, embedding_blob
+        from document_chunks
+        where source_type = 'plan'
+        limit ?
+        `
+      )
+      .all(planBackfillLimit) as StoredChunkRow[];
+  }
+
+  const mergedRows: StoredChunkRow[] = [];
+  const seen = new Set<string>();
+  for (const row of [...rows, ...planRows]) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    mergedRows.push(row);
+  }
+
+  const ranked = mergedRows
     .map((row, idx) => {
       const embedding = fromEmbeddingBlob(row.embedding_blob);
       const semanticScore = embedding ? cosineSimilarity(queryEmbedding, embedding) : 0;

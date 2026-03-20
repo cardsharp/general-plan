@@ -29,7 +29,7 @@ const RULES: SynonymRule[] = [
     terms: ["land use", "ordinance", "code requirement", "zone change"],
   },
   {
-    match: /\bmihp\b|\bmoderate income housing\b/i,
+    match: /\bmih\b|\bmihp\b|\bmoderate income housing\b/i,
     terms: ["housing element", "state housing requirement", "affordable housing policy"],
   },
 ];
