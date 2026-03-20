@@ -7,6 +7,7 @@ import { classifyTheme } from "@/lib/theme-classifier";
 import { runChatModel } from "@/lib/chat-model";
 import { recordThemeEvent, searchChunks } from "@/lib/vector-store";
 import { buildSafeFallback, buildStrictRepairPrompt, validateGroundedAnswer } from "@/lib/citation-guard";
+import { expandQuery } from "@/lib/query-expansion";
 
 const schema = z.object({
   message: z.string().min(3),
@@ -118,12 +119,14 @@ export async function POST(request: NextRequest) {
       theme,
     });
 
-    const queryEmbedding = await embedText(body.message);
-    const chunks = await searchChunks(body.message, queryEmbedding, 10);
+    const expanded = expandQuery(body.message);
+    const queryEmbedding = await embedText(expanded.embeddingQuery);
+    const chunks = await searchChunks(expanded.lexicalQuery, queryEmbedding, 10);
     const context = buildContext(chunks);
     const baseUserPrompt = buildUserPrompt(body.message, context);
     logChat(requestId, "retrieval", {
       chunks: chunks.length,
+      expansions: expanded.expansions,
       topChunk: chunks[0]
         ? { doc: chunks[0].doc_title, page: chunks[0].page, paragraph: chunks[0].paragraph }
         : null,

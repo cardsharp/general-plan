@@ -101,7 +101,7 @@ function sectionKind(title: string | null) {
   if (!title) return "general";
   const lower = title.toLowerCase();
   if (/what the plan says|plan says|plan evidence/.test(lower)) return "plan";
-  if (/supporting documents add|supporting context|supporting evidence/.test(lower)) return "support";
+  if (/what other sources say|supporting documents add|supporting context|supporting evidence/.test(lower)) return "support";
   if (/risk|concern|warning|impact/.test(lower)) return "risk";
   if (/evidence|quote|source|fact|finding/.test(lower)) return "evidence";
   if (/next|ask|action|option|recommend/.test(lower)) return "next";
@@ -380,7 +380,11 @@ function renderInlineMarkdown(
   return nodes;
 }
 
-function renderMarkdownBlocks(text: string, citations: Citation[] | undefined, onOpenSources: (items: Citation[]) => void) {
+function renderMarkdownBlocks(
+  text: string,
+  citations: Citation[] | undefined,
+  onOpenSources: (items: Citation[]) => void
+) {
   const lines = text.split("\n").map((l) => l.trimEnd());
   const sections: Section[] = [{ title: null, nodes: [], plainText: [] }];
   const current = () => sections[sections.length - 1];
@@ -505,6 +509,8 @@ export function ChatShell() {
   const [feedbackDraft, setFeedbackDraft] = useState<FeedbackDraft | null>(null);
   const [sendingFeedback, setSendingFeedback] = useState(false);
   const latestAssistantRef = useRef<HTMLElement | null>(null);
+  const homeInputRef = useRef<HTMLInputElement | null>(null);
+  const chatInputRef = useRef<HTMLInputElement | null>(null);
 
   function openSources(citations: Citation[]) {
     setSourcePanel({ citations: citations.length ? citations : [] });
@@ -538,6 +544,16 @@ export function ChatShell() {
   useEffect(() => {
     setStarters(pickRandomItems(APP_CONFIG.starters, 3));
   }, []);
+
+  useEffect(() => {
+    if (started) return;
+    homeInputRef.current?.focus();
+  }, [started]);
+
+  useEffect(() => {
+    if (!started || loading) return;
+    chatInputRef.current?.focus();
+  }, [started, loading, turns.length]);
 
   async function ask(question: string) {
     if (!question.trim()) return;
@@ -683,6 +699,7 @@ export function ChatShell() {
           <form onSubmit={onSubmit} className="mt-5">
             <div className="flex items-center gap-2">
             <input
+              ref={homeInputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask anything about the plan, meetings, zoning, or policy..."
@@ -860,6 +877,7 @@ export function ChatShell() {
       <form onSubmit={onSubmit} className="fixed bottom-0 left-0 right-0 bg-[#f7f7f8] px-4 pb-5 pt-3">
         <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
           <input
+            ref={chatInputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Message"

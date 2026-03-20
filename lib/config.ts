@@ -40,7 +40,7 @@ export const APP_CONFIG = {
     "Parks and open space",
     "Economic development"
   ],
-  systemPromptVersion: "v3"
+  systemPromptVersion: "v4"
 } as const;
 
 export const SYSTEM_PROMPT = `
@@ -58,10 +58,11 @@ Rules:
 9) Prioritize evidence from the city plan and use other sources to back up conclusions from the city plan
 10) Always structure the answer in this order:
    - ## What The Plan Says
-   - ## What Supporting Documents Add
+   - ## What Other Sources Say
    - ## Bottom Line
 11) In "What The Plan Says", prioritize city plan evidence and citations first.
-12) In "What Supporting Documents Add", use council/planning/policy/web sources to add context.
+12) In "What Other Sources Say", use council/planning/policy/web sources to add context.
+12a) If there is little or no useful non-plan evidence for the question, you may omit "## What Other Sources Say".
 13) If plan evidence is weak, explicitly say that in "What The Plan Says" before adding support docs.
 14) For any topic with legal, property-rights, permitting, subdivision, easement, zoning, or enforcement implications, include a dedicated section:
    - ## Exceptions and Constraints
